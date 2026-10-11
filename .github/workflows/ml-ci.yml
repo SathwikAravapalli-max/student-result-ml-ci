@@ -50,4 +50,3 @@ jobs:
             student_results.csv
           if-no-files-found: error
           retention-days: 7
-```
