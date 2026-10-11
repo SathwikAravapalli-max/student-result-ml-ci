@@ -1,47 +1,42 @@
-name: Student Result ML CI-CD
+
+name: Student Result ML CI Pipeline
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
-  train-test-deliver:
+  ml-pipeline:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-
-      - name: Upgrade pip
-        run: python -m pip install --upgrade pip
+          python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      - name: Train student result model
+      - name: Train ML model
         run: python train_model.py
 
-      - name: Check ML quality gate
+      - name: Run ML quality gate
         run: python quality_gate.py
 
-      - name: Run automated ML tests
-        run: python -m unittest test_ml_pipeline.py -v
+      - name: Run ML pipeline tests
+        run: python -m pytest test_ml_pipeline.py -v
 
-      - name: Run prediction application tests
-        run: python -m unittest test_app.py -v
+      - name: Run prediction API tests
+        run: python -m pytest test_app.py -v
 
       - name: Prepare release candidate
         run: |
@@ -50,7 +45,9 @@ jobs:
           cp student_result_model.pkl release_candidate/
           cp metrics.json release_candidate/
           cp requirements.txt release_candidate/
-          printf 'Student Result Prediction ML Application\nRun: python app.py\nEndpoint: POST /predict\n' > release_candidate/DEPLOYMENT.txt
+          cp Dockerfile release_candidate/
+          cp .dockerignore release_candidate/
+          printf "Student Result Prediction ML Application\nRun: python app.py\nEndpoint: POST /predict\n" > release_candidate/DEPLOYMENT.txt
 
       - name: Upload release candidate
         uses: actions/upload-artifact@v4
