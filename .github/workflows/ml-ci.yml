@@ -1,0 +1,39 @@
+
+name: Student Result ML CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  train-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Install ML dependencies
+        run: pip install -r requirements.txt
+
+      - name: Train student result model
+        run: python train_model.py
+
+      - name: Run automated ML tests
+        run: python -m unittest discover -v
