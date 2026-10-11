@@ -40,3 +40,14 @@ jobs:
 
       - name: Run automated ML tests
         run: python -m unittest discover -v
+
+      - name: Upload validated ML artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: student-result-ml-artifacts
+          path: |
+            student_result_model.pkl
+            metrics.json
+            student_results.csv
+          if-no-files-found: error
+          retention-days: 7
