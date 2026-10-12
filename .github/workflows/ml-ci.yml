@@ -38,6 +38,47 @@ jobs:
       - name: Run prediction API tests
         run: python -m pytest test_app.py -v
 
+      - name: Build Docker image
+        run: docker build -t student-result-ml:${{ github.sha }} .
+
+      - name: Start Docker container
+        run: |
+          docker run -d \
+            --name student-result-ml-container \
+            -p 5000:5000 \
+            student-result-ml:${{ github.sha }}
+
+      - name: Wait for application to become ready
+        run: |
+          for i in {1..15}; do
+            if curl --fail --silent http://localhost:5000/health; then
+              echo "Application is ready."
+              exit 0
+            fi
+            echo "Waiting for application... attempt $i"
+            sleep 2
+          done
+          echo "Application did not become ready."
+          exit 1
+
+      - name: Test prediction endpoint
+        run: |
+          response=$(curl --fail --silent --show-error \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -d '{"attendance":90,"internal_marks":85,"assignment_marks":88,"previous_score":80}' \
+            http://localhost:5000/predict)
+          echo "Prediction response: $response"
+          echo "$response" | grep -q '"prediction"'
+
+      - name: Show Docker container logs
+        if: always()
+        run: docker logs student-result-ml-container || true
+
+      - name: Stop and remove Docker container
+        if: always()
+        run: docker rm -f student-result-ml-container || true
+
       - name: Prepare release candidate
         run: |
           mkdir -p release_candidate
