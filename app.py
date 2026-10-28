@@ -1,6 +1,6 @@
 
-from pathlib import Path
 import os
+from pathlib import Path
 
 import joblib
 import pandas as pd
@@ -24,6 +24,7 @@ def load_model():
             "student_result_model.pkl was not found. "
             "Run the training pipeline first."
         )
+
     return joblib.load(MODEL_PATH)
 
 
@@ -32,12 +33,14 @@ def health_check():
     return jsonify({
         "status": "ok",
         "service": "student-result-prediction",
-    })
+    }), 200
 
 
 @app.get("/health")
 def health():
-    return jsonify({"status": "healthy"}), 200
+    return jsonify({
+        "status": "healthy"
+    }), 200
 
 
 @app.post("/predict")
@@ -62,22 +65,28 @@ def predict():
 
     try:
         sample = pd.DataFrame([{
-            feature: data[feature]
+            feature: float(data[feature])
             for feature in FEATURES
         }])
+    except (TypeError, ValueError):
+        return jsonify({
+            "error": "All input fields must contain numeric values"
+        }), 400
 
+    try:
         model = load_model()
         prediction_code = int(model.predict(sample)[0])
-        prediction = "PASS" if prediction_code == 1 else "FAIL"
+    except FileNotFoundError as error:
+        return jsonify({"error": str(error)}), 500
 
-        return jsonify({
-            "prediction": prediction,
-            "prediction_code": prediction_code,
-        })
-    except (ValueError, TypeError):
-        return jsonify({"error": "Invalid input values"}), 400
+    prediction = "PASS" if prediction_code == 1 else "FAIL"
+
+    return jsonify({
+        "prediction": prediction,
+        "prediction_code": prediction_code,
+    }), 200
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
