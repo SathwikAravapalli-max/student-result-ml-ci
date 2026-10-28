@@ -20,8 +20,30 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Train ML model
+        run: python train_model.py
+
+      - name: Run ML quality gate
+        run: python quality_gate.py
+
+      - name: Run ML pipeline tests
+        run: python -m pytest test_ml_pipeline.py -v
+
+      - name: Run prediction API tests
+        run: python -m pytest test_app.py -v
+
+      - name: Build Docker image
+        run: docker build -t student-result-ml:ci .
 
       - name: Log in to GitHub Container Registry
         if: github.event_name != 'pull_request'
@@ -31,32 +53,30 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Docker image
-        run: |
-          docker build -t student-result-ml:ci .
-
-      - name: Test Docker image
+      - name: Start Docker container
         run: |
           docker run -d \
             --name student-result-ml-test \
             -p 5000:5000 \
             student-result-ml:ci
 
+      - name: Wait for application health check
+        run: |
           for i in {1..15}; do
             if curl --fail --silent http://localhost:5000/health; then
               echo "Health check passed."
-              break
+              exit 0
             fi
 
-            if [ "$i" -eq 15 ]; then
-              echo "Health check failed."
-              docker logs student-result-ml-test
-              exit 1
-            fi
-
+            echo "Waiting for application... attempt $i"
             sleep 2
           done
 
+          echo "Health check failed."
+          exit 1
+
+      - name: Test prediction endpoint
+        run: |
           response=$(curl --fail --silent --show-error \
             -X POST \
             -H "Content-Type: application/json" \
@@ -66,11 +86,11 @@ jobs:
           echo "Prediction response: $response"
           echo "$response" | grep -q '"prediction"'
 
-      - name: Show Docker logs
+      - name: Show Docker container logs
         if: always()
         run: docker logs student-result-ml-test || true
 
-      - name: Remove test container
+      - name: Stop and remove Docker container
         if: always()
         run: docker rm -f student-result-ml-test || true
 
@@ -78,7 +98,9 @@ jobs:
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: |
           IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+
           docker tag student-result-ml:ci "$IMAGE:latest"
           docker tag student-result-ml:ci "$IMAGE:${GITHUB_SHA}"
+
           docker push "$IMAGE:latest"
           docker push "$IMAGE:${GITHUB_SHA}"
