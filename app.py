@@ -1,5 +1,6 @@
 
 from pathlib import Path
+import os
 
 import joblib
 import pandas as pd
@@ -36,9 +37,7 @@ def health_check():
 
 @app.get("/health")
 def health():
-    return jsonify({
-        "status": "healthy"
-    }), 200
+    return jsonify({"status": "healthy"}), 200
 
 
 @app.post("/predict")
@@ -61,20 +60,24 @@ def predict():
             "missing_fields": missing_fields,
         }), 400
 
-    sample = pd.DataFrame([{
-        feature: data[feature]
-        for feature in FEATURES
-    }])
+    try:
+        sample = pd.DataFrame([{
+            feature: data[feature]
+            for feature in FEATURES
+        }])
 
-    model = load_model()
-    prediction_code = int(model.predict(sample)[0])
-    prediction = "PASS" if prediction_code == 1 else "FAIL"
+        model = load_model()
+        prediction_code = int(model.predict(sample)[0])
+        prediction = "PASS" if prediction_code == 1 else "FAIL"
 
-    return jsonify({
-        "prediction": prediction,
-        "prediction_code": prediction_code,
-    })
+        return jsonify({
+            "prediction": prediction,
+            "prediction_code": prediction_code,
+        })
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid input values"}), 400
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
