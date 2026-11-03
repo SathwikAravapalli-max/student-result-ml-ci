@@ -117,7 +117,7 @@ jobs:
 
     steps:
       - name: Verify Minikube connection
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
           kubectl config current-context
@@ -125,7 +125,7 @@ jobs:
           kubectl get deployment student-result-api
 
       - name: Deploy new image
-        shell: pwsh
+        shell: powershell
         env:
           IMAGE_REF: ${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
         run: |
@@ -145,7 +145,7 @@ jobs:
           }
 
       - name: Verify deployed application
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
 
@@ -216,7 +216,7 @@ jobs:
 
       - name: Rollback if deployment fails
         if: failure()
-        shell: pwsh
+        shell: powershell
         run: |
           Write-Host "Deployment failed. Attempting rollback."
 
@@ -225,7 +225,7 @@ jobs:
 
       - name: Show rollout history
         if: success()
-        shell: pwsh
+        shell: powershell
         run: |
           kubectl rollout history deployment/student-result-api
           kubectl get pods
