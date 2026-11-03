@@ -11,7 +11,6 @@ permissions:
   packages: write
 
 env:
-  REGISTRY: ghcr.io
   IMAGE_NAME: ghcr.io/sathwikaravapalli-max/student-result-ml
 
 jobs:
@@ -61,13 +60,15 @@ jobs:
 
       - name: Verify application health
         run: |
-          for i in {1..15}; do
+          for i in {1..20}; do
             if curl --fail --silent http://localhost:5000/health; then
               echo "Application is healthy."
               exit 0
             fi
+            echo "Waiting for application..."
             sleep 2
           done
+
           echo "Health check failed."
           exit 1
 
@@ -79,7 +80,7 @@ jobs:
             -d '{"attendance":90,"internal_marks":85,"assignment_marks":88,"previous_score":80}' \
             http://localhost:5000/predict)
 
-          echo "$response"
+          echo "Prediction response: $response"
           echo "$response" | grep -q '"prediction"'
 
       - name: Test metrics endpoint
@@ -87,11 +88,11 @@ jobs:
           curl --fail --silent http://localhost:5000/metrics \
             | grep -q 'student_api_http_requests_total'
 
-      - name: Show container logs
+      - name: Show Docker container logs
         if: always()
         run: docker logs student-result-ci-test || true
 
-      - name: Remove test container
+      - name: Remove Docker container
         if: always()
         run: docker rm -f student-result-ci-test || true
 
@@ -105,9 +106,11 @@ jobs:
       - name: Publish SHA and latest images
         run: |
           docker push ${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+
           docker tag \
             ${{ env.IMAGE_NAME }}:sha-${{ github.sha }} \
             ${{ env.IMAGE_NAME }}:latest
+
           docker push ${{ env.IMAGE_NAME }}:latest
 
   deploy-kubernetes:
@@ -120,28 +123,42 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
+
           kubectl config current-context
+          if ($LASTEXITCODE -ne 0) {
+            throw "Cannot access Kubernetes context."
+          }
+
           kubectl get nodes
+          if ($LASTEXITCODE -ne 0) {
+            throw "Cannot access Minikube nodes."
+          }
+
           kubectl get deployment student-result-api
 
       - name: Deploy new image
         shell: powershell
-        env:
-          IMAGE_REF: ${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
         run: |
           $ErrorActionPreference = "Stop"
 
-          kubectl set image deployment/student-result-api `
-            student-result-prediction=$env:IMAGE_REF
+          $image = "ghcr.io/sathwikaravapalli-max/student-result-ml:sha-${{ github.sha }}"
+
+          kubectl set image deployment/student-result-api student-result-prediction=$image
 
           if ($LASTEXITCODE -ne 0) {
-            throw "Failed to update Kubernetes deployment."
+            throw "Failed to update Kubernetes image."
           }
 
-          kubectl rollout status deployment/student-result-api --timeout=180s
+          kubectl rollout status deployment/student-result-api --timeout=240s
 
           if ($LASTEXITCODE -ne 0) {
             throw "Kubernetes rollout failed."
+          }
+
+          kubectl wait --for=condition=Available deployment/student-result-api --timeout=120s
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Deployment is not available."
           }
 
       - name: Verify deployed application
@@ -149,19 +166,29 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
+          kubectl rollout status deployment/student-result-api --timeout=180s
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Deployment rollout verification failed."
+          }
+
           $portForward = Start-Process kubectl `
-            -ArgumentList "port-forward service/student-result-api 18080:5000" `
+            -ArgumentList "port-forward service/student-result-api 18081:5000" `
             -PassThru -NoNewWindow
 
           try {
             $ready = $false
 
-            for ($i = 1; $i -le 20; $i++) {
+            for ($i = 1; $i -le 30; $i++) {
               Start-Sleep -Seconds 2
+
+              if ($portForward.HasExited) {
+                throw "Kubectl port-forward process stopped unexpectedly."
+              }
 
               try {
                 $health = Invoke-RestMethod `
-                  -Uri "http://127.0.0.1:18080/health" `
+                  -Uri "http://127.0.0.1:18081/health" `
                   -TimeoutSec 5
 
                 if ($health.status -eq "ok") {
@@ -170,7 +197,7 @@ jobs:
                 }
               }
               catch {
-                Write-Host "Waiting for application..."
+                Write-Host "Waiting for application health..."
               }
             }
 
@@ -188,7 +215,7 @@ jobs:
             } | ConvertTo-Json
 
             $prediction = Invoke-RestMethod `
-              -Uri "http://127.0.0.1:18080/predict" `
+              -Uri "http://127.0.0.1:18081/predict" `
               -Method Post `
               -ContentType "application/json" `
               -Body $body
@@ -200,13 +227,16 @@ jobs:
             Write-Host "Prediction: $($prediction.prediction)"
 
             $metrics = Invoke-WebRequest `
-              -Uri "http://127.0.0.1:18080/metrics"
+              -Uri "http://127.0.0.1:18081/metrics" `
+              -TimeoutSec 10
 
             if ($metrics.Content -notmatch "student_api_http_requests_total") {
               throw "Metrics verification failed."
             }
 
             Write-Host "Metrics verification passed."
+            Write-Host "All application checks passed."
+
           }
           finally {
             if ($portForward -and -not $portForward.HasExited) {
@@ -221,12 +251,24 @@ jobs:
           Write-Host "Deployment failed. Attempting rollback."
 
           kubectl rollout undo deployment/student-result-api
-          kubectl rollout status deployment/student-result-api --timeout=180s
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Automatic rollback command failed."
+          }
+
+          kubectl rollout status deployment/student-result-api --timeout=240s
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Rollback rollout verification failed."
+          }
+
+          Write-Host "Rollback completed."
 
       - name: Show rollout history
         if: success()
         shell: powershell
         run: |
           kubectl rollout history deployment/student-result-api
+          kubectl get deployment student-result-api
           kubectl get pods
           kubectl get services
