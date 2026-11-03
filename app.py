@@ -9,7 +9,9 @@ from pathlib import Path
 
 import joblib
 import pandas as pd
+
 from flask import Flask, jsonify, request, g, Response
+
 from prometheus_client import (
     Counter,
     Histogram,
@@ -90,6 +92,7 @@ def load_model():
                 )
 
             model = joblib.load(MODEL_PATH)
+
             MODEL_LOADED.set(1)
 
             logger.info(
@@ -104,10 +107,14 @@ def load_model():
                 "event=model_load_failed model_file=%s",
                 MODEL_PATH
             )
+
             raise
 
     return model
 
+
+# Load model during application startup
+load_model()
 
 # --------------------------------------------------
 # 5. Request logging and monitoring
@@ -115,27 +122,34 @@ def load_model():
 
 @app.before_request
 def before_request():
+
     g.request_id = request.headers.get(
-        "X-Request-ID", str(uuid.uuid4())
+        "X-Request-ID",
+        str(uuid.uuid4())
     )
+
     g.start_time = time.perf_counter()
 
 
 @app.after_request
 def after_request(response):
+
     duration_seconds = time.perf_counter() - g.start_time
     duration_ms = duration_seconds * 1000
 
-    REQUEST_COUNT.labels(
-        request.method,
-        request.path,
-        str(response.status_code),
-    ).inc()
+    # Exclude Prometheus scrape requests from user traffic metrics
+    if request.path != "/metrics":
 
-    REQUEST_DURATION.labels(
-        request.method,
-        request.path,
-    ).observe(duration_seconds)
+        REQUEST_COUNT.labels(
+            request.method,
+            request.path,
+            str(response.status_code),
+        ).inc()
+
+        REQUEST_DURATION.labels(
+            request.method,
+            request.path,
+        ).observe(duration_seconds)
 
     level = (
         logging.WARNING
@@ -165,6 +179,7 @@ def after_request(response):
 @app.get("/")
 @app.get("/health")
 def health_check():
+
     return jsonify({
         "status": "ok",
         "service": "student-result-prediction",
@@ -177,6 +192,7 @@ def health_check():
 
 @app.get("/metrics")
 def metrics():
+
     return Response(
         generate_latest(),
         mimetype=CONTENT_TYPE_LATEST,
@@ -205,6 +221,7 @@ def predict():
         ]
 
         if missing_fields:
+
             logger.warning(
                 "event=validation_error missing_fields=%s",
                 missing_fields
@@ -219,6 +236,7 @@ def predict():
         invalid_fields = []
 
         for feature in FEATURES:
+
             try:
                 value = float(data[feature])
 
@@ -229,6 +247,7 @@ def predict():
                 invalid_fields.append(feature)
 
         if invalid_fields:
+
             logger.warning(
                 "event=validation_error invalid_fields=%s",
                 invalid_fields
@@ -264,6 +283,7 @@ def predict():
             "PASS" if prediction_code == 1 else "FAIL"
         )
 
+        # Count successful predictions
         PREDICTIONS_TOTAL.labels(
             result="success"
         ).inc()
@@ -279,11 +299,15 @@ def predict():
         })
 
     except Exception:
+
+        # Count failed inference attempts
         PREDICTIONS_TOTAL.labels(
-            result="failure"
+            result="error"
         ).inc()
 
-        logger.exception("event=prediction_failed")
+        logger.exception(
+            "event=prediction_failed"
+        )
 
         return jsonify({
             "error": "Prediction failed"
@@ -295,6 +319,7 @@ def predict():
 # --------------------------------------------------
 
 if __name__ == "__main__":
+
     port = int(os.environ.get("PORT", 5000))
 
     app.run(
