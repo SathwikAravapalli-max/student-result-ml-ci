@@ -2,10 +2,6 @@
 name: Build Test and Publish Docker Image
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
