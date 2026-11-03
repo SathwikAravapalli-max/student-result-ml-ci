@@ -10,9 +10,7 @@ import joblib
 import pandas as pd
 from flask import Flask, jsonify, request, g
 
-# --------------------------------------------------
 # Application and logging configuration
-# --------------------------------------------------
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,12 +35,12 @@ FEATURES = [
     "previous_score",
 ]
 
-logger.info("event=application_started service=student-result-prediction")
+logger.info(
+    "event=application_started "
+    "service=student-result-prediction"
+)
 
-
-# --------------------------------------------------
-# Request logging and request ID tracking
-# --------------------------------------------------
+# Request ID tracking
 
 @app.before_request
 def start_request_tracking():
@@ -55,9 +53,13 @@ def start_request_tracking():
 @app.after_request
 def log_request(response):
     request_id = getattr(g, "request_id", "unknown")
-    start_time = getattr(g, "start_time", time.perf_counter())
+    start_time = getattr(
+        g, "start_time", time.perf_counter()
+    )
 
-    duration_ms = (time.perf_counter() - start_time) * 1000
+    duration_ms = (
+        time.perf_counter() - start_time
+    ) * 1000
 
     log_level = (
         logging.ERROR if response.status_code >= 500
@@ -67,8 +69,8 @@ def log_request(response):
 
     logger.log(
         log_level,
-        "event=http_request request_id=%s method=%s "
-        "path=%s status=%s duration_ms=%.2f",
+        "event=http_request request_id=%s "
+        "method=%s path=%s status=%s duration_ms=%.2f",
         request_id,
         request.method,
         request.path,
@@ -80,9 +82,7 @@ def log_request(response):
     return response
 
 
-# --------------------------------------------------
 # Model loading
-# --------------------------------------------------
 
 def load_model():
     if not MODEL_PATH.exists():
@@ -110,9 +110,7 @@ def load_model():
         raise
 
 
-# --------------------------------------------------
 # Health endpoints
-# --------------------------------------------------
 
 @app.get("/")
 def health_check():
@@ -129,9 +127,7 @@ def health():
     }), 200
 
 
-# --------------------------------------------------
 # Student result prediction endpoint
-# --------------------------------------------------
 
 @app.post("/predict")
 def predict():
@@ -139,7 +135,8 @@ def predict():
 
     if not data or not isinstance(data, dict):
         logger.warning(
-            "event=invalid_request request_id=%s reason=invalid_json",
+            "event=invalid_request request_id=%s "
+            "reason=invalid_json",
             g.request_id,
         )
         return jsonify({
@@ -208,9 +205,7 @@ def predict():
         }), 500
 
 
-# --------------------------------------------------
 # Application startup
-# --------------------------------------------------
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
