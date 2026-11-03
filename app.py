@@ -137,7 +137,7 @@ def after_request(response):
     duration_seconds = time.perf_counter() - g.start_time
     duration_ms = duration_seconds * 1000
 
-    # Exclude Prometheus scrape requests from user traffic metrics
+    # Exclude Prometheus scrape requests from traffic metrics
     if request.path != "/metrics":
 
         REQUEST_COUNT.labels(
