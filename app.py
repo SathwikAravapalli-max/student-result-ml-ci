@@ -113,6 +113,7 @@ def after_request(response):
 # 5. Health endpoint
 # --------------------------------------------------
 
+@app.get("/")
 @app.get("/health")
 def health_check():
     return jsonify({
