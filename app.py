@@ -4,11 +4,19 @@ import sys
 import time
 import uuid
 import math
+import os
 from pathlib import Path
 
 import joblib
 import pandas as pd
-from flask import Flask, jsonify, request, g
+from flask import Flask, jsonify, request, g, Response
+from prometheus_client import (
+    Counter,
+    Histogram,
+    Gauge,
+    generate_latest,
+    CONTENT_TYPE_LATEST,
+)
 
 # --------------------------------------------------
 # 1. Flask application
@@ -26,7 +34,34 @@ FEATURES = [
 ]
 
 # --------------------------------------------------
-# 2. Configure application logging
+# 2. Prometheus metrics
+# --------------------------------------------------
+
+REQUEST_COUNT = Counter(
+    "student_api_http_requests_total",
+    "Total HTTP requests received by the Student Result Prediction API",
+    ["method", "path", "status"],
+)
+
+REQUEST_DURATION = Histogram(
+    "student_api_http_request_duration_seconds",
+    "HTTP request duration in seconds",
+    ["method", "path"],
+)
+
+PREDICTIONS_TOTAL = Counter(
+    "student_api_predictions_total",
+    "Total Student Result Prediction attempts",
+    ["result"],
+)
+
+MODEL_LOADED = Gauge(
+    "student_api_model_loaded",
+    "Whether the Student Result Prediction model is loaded",
+)
+
+# --------------------------------------------------
+# 3. Configure application logging
 # --------------------------------------------------
 
 logging.basicConfig(
@@ -41,7 +76,7 @@ logger = logging.getLogger("student-result-api")
 model = None
 
 # --------------------------------------------------
-# 3. Load ML model
+# 4. Load ML model
 # --------------------------------------------------
 
 def load_model():
@@ -55,12 +90,16 @@ def load_model():
                 )
 
             model = joblib.load(MODEL_PATH)
+            MODEL_LOADED.set(1)
+
             logger.info(
                 "event=model_loaded model_file=%s",
                 MODEL_PATH
             )
 
         except Exception:
+            MODEL_LOADED.set(0)
+
             logger.exception(
                 "event=model_load_failed model_file=%s",
                 MODEL_PATH
@@ -71,7 +110,7 @@ def load_model():
 
 
 # --------------------------------------------------
-# 4. Request logging and request ID
+# 5. Request logging and monitoring
 # --------------------------------------------------
 
 @app.before_request
@@ -84,9 +123,19 @@ def before_request():
 
 @app.after_request
 def after_request(response):
-    duration_ms = (
-        time.perf_counter() - g.start_time
-    ) * 1000
+    duration_seconds = time.perf_counter() - g.start_time
+    duration_ms = duration_seconds * 1000
+
+    REQUEST_COUNT.labels(
+        request.method,
+        request.path,
+        str(response.status_code),
+    ).inc()
+
+    REQUEST_DURATION.labels(
+        request.method,
+        request.path,
+    ).observe(duration_seconds)
 
     level = (
         logging.WARNING
@@ -110,7 +159,7 @@ def after_request(response):
 
 
 # --------------------------------------------------
-# 5. Health endpoint
+# 6. Health endpoint
 # --------------------------------------------------
 
 @app.get("/")
@@ -123,7 +172,19 @@ def health_check():
 
 
 # --------------------------------------------------
-# 6. Prediction endpoint
+# 7. Prometheus metrics endpoint
+# --------------------------------------------------
+
+@app.get("/metrics")
+def metrics():
+    return Response(
+        generate_latest(),
+        mimetype=CONTENT_TYPE_LATEST,
+    )
+
+
+# --------------------------------------------------
+# 8. Prediction endpoint
 # --------------------------------------------------
 
 @app.post("/predict")
@@ -203,6 +264,10 @@ def predict():
             "PASS" if prediction_code == 1 else "FAIL"
         )
 
+        PREDICTIONS_TOTAL.labels(
+            result="success"
+        ).inc()
+
         logger.info(
             "event=prediction_success prediction=%s",
             prediction
@@ -214,6 +279,10 @@ def predict():
         })
 
     except Exception:
+        PREDICTIONS_TOTAL.labels(
+            result="failure"
+        ).inc()
+
         logger.exception("event=prediction_failed")
 
         return jsonify({
@@ -222,11 +291,11 @@ def predict():
 
 
 # --------------------------------------------------
-# 7. Run Flask application
+# 9. Run Flask application
 # --------------------------------------------------
 
 if __name__ == "__main__":
-    port = int(__import__("os").environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 5000))
 
     app.run(
         host="0.0.0.0",
