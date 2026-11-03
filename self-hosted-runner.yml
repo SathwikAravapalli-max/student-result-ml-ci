@@ -1,0 +1,19 @@
+
+name: Self Hosted Runner Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  runner-test:
+    runs-on: self-hosted
+
+    steps:
+      - name: Check runner
+        run: |
+          echo "Self-hosted runner is working!"
+          echo "Runner name: $env:RUNNER_NAME"
+          echo "Operating system: $env:RUNNER_OS"
+
+      - name: Check Python
+        run: python --version
