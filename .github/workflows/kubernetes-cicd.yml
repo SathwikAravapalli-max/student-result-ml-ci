@@ -126,13 +126,11 @@ jobs:
           $ErrorActionPreference = "Stop"
 
           kubectl config current-context
-
           if ($LASTEXITCODE -ne 0) {
             throw "Kubernetes context verification failed."
           }
 
           kubectl get nodes
-
           if ($LASTEXITCODE -ne 0) {
             throw "Minikube connection failed."
           }
@@ -229,7 +227,7 @@ jobs:
 
             Write-Host "Prediction: $($prediction.prediction)"
 
-            # Use curl.exe to avoid PowerShell Invoke-WebRequest issues
+            # Read Prometheus metrics using curl.exe
             $metrics = & curl.exe --fail --silent --show-error `
               http://127.0.0.1:18081/metrics
 
@@ -237,8 +235,14 @@ jobs:
               throw "Metrics endpoint request failed."
             }
 
-            if ($metrics -notmatch "student_api_http_requests_total") {
-              throw "Metrics verification failed."
+            # Convert response to text for reliable matching
+            $metricsText = $metrics -join "`n"
+
+            Write-Host "Metrics response:"
+            Write-Host $metricsText
+
+            if ($metricsText -notmatch "student_api_http_requests_total") {
+              throw "Metrics verification failed. Expected metric was not found."
             }
 
             Write-Host "Metrics verification passed."
