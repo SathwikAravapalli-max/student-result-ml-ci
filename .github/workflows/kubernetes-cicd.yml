@@ -65,6 +65,7 @@ jobs:
               echo "Application is healthy."
               exit 0
             fi
+
             echo "Waiting for application..."
             sleep 2
           done
@@ -125,13 +126,15 @@ jobs:
           $ErrorActionPreference = "Stop"
 
           kubectl config current-context
+
           if ($LASTEXITCODE -ne 0) {
-            throw "Cannot access Kubernetes context."
+            throw "Kubernetes context verification failed."
           }
 
           kubectl get nodes
+
           if ($LASTEXITCODE -ne 0) {
-            throw "Cannot access Minikube nodes."
+            throw "Minikube connection failed."
           }
 
           kubectl get deployment student-result-api
@@ -183,7 +186,7 @@ jobs:
               Start-Sleep -Seconds 2
 
               if ($portForward.HasExited) {
-                throw "Kubectl port-forward process stopped unexpectedly."
+                throw "Kubectl port-forward stopped unexpectedly."
               }
 
               try {
@@ -226,17 +229,20 @@ jobs:
 
             Write-Host "Prediction: $($prediction.prediction)"
 
-            $metrics = Invoke-WebRequest `
-              -Uri "http://127.0.0.1:18081/metrics" `
-              -TimeoutSec 10
+            # Use curl.exe to avoid PowerShell Invoke-WebRequest issues
+            $metrics = & curl.exe --fail --silent --show-error `
+              http://127.0.0.1:18081/metrics
 
-            if ($metrics.Content -notmatch "student_api_http_requests_total") {
+            if ($LASTEXITCODE -ne 0) {
+              throw "Metrics endpoint request failed."
+            }
+
+            if ($metrics -notmatch "student_api_http_requests_total") {
               throw "Metrics verification failed."
             }
 
             Write-Host "Metrics verification passed."
             Write-Host "All application checks passed."
-
           }
           finally {
             if ($portForward -and -not $portForward.HasExited) {
@@ -259,7 +265,7 @@ jobs:
           kubectl rollout status deployment/student-result-api --timeout=240s
 
           if ($LASTEXITCODE -ne 0) {
-            throw "Rollback rollout verification failed."
+            throw "Rollback verification failed."
           }
 
           Write-Host "Rollback completed."
